@@ -1,0 +1,24 @@
+# Byte-compiled
+_pycache__/
+.cache/
+
+# Compiled python modules.
+*.pyc
+
+# PyCharm/vscode
+.idea
+.vscode
+
+# jupyter checkpoints
+**/.ipynb_checkpoints
+
+# Other
+*.DS_Store
+
+# venv
+.venv/
+
+log/
+
+# vscode
+.vscode/
