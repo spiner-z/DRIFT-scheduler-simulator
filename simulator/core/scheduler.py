@@ -116,6 +116,7 @@ class Scheduler:
         cpu_utilization = cpu_used_time / total_cpu_used_time if total_cpu_used_time > 0 else 0
         gpu_utilization = gpu_used_time / total_gpu_used_time if total_gpu_used_time > 0 else 0
         print(f"Total makespan: {makespan} seconds")
+        print(f"Scheduling {len(self.all_pods)} pods in {len(self.nodes)} nodes")
         print(f"Total completed pods: {completed_pods_count} / {len(self.all_pods)}")
         print(f"CPU Utilization: {cpu_utilization*100:.2f}%")
         print(f"GPU Utilization: {gpu_utilization*100:.2f}%")
