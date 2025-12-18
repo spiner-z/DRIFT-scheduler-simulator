@@ -1,6 +1,6 @@
 from simulator.models.etcd_mock import EtcdMock
 from simulator.models.node import Node
-from simulator.models.pod import Pod
+from simulator.models.pod import Pod, PodStatus
 
 def test_gpu_packing_prefer_fuller_single_gpu():
     e = EtcdMock()
@@ -9,7 +9,11 @@ def test_gpu_packing_prefer_fuller_single_gpu():
 
     # p1 先放到 gid=0（tie-break），gpu0: 600 free, gpu1: 1000 free
     e.add_pod(Pod(name="p1", cpu_milli=500, memory_mib=256, num_gpu=1, gpu_milli=400))
+    assert e.pending_pods == {"p1"}
     e.bind("p1", "n1")
+    assert e.pending_pods == set()
+    assert e.running_pods == {"p1"}
+    assert e.pods['p1'].status == PodStatus.Running
     assert e.pods["p1"].gpu_alloc == {0: 400}
     assert e.nodes["n1"].gpu_free_milli == [600, 1000]
     assert e.nodes["n1"].cpu_milli_free == 32000 - 500
@@ -110,6 +114,10 @@ def test_unbind_restores_all_resources_and_indices():
     free_before = e.nodes["n4"].gpu_free_milli.copy()
 
     e.unbind("p1")
+    assert e.pending_pods == set()
+    assert e.running_pods == set()
+    assert e.completed_pods == {"p1"}
+    assert e.pods['p1'].status == PodStatus.Completed
 
     # unbind 后检查 pod 状态
     assert e.pods["p1"].bound_node is None

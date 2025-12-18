@@ -1,7 +1,7 @@
-from typing import Dict, Optional, Set
+from typing import Dict, Optional, Set, List
 
 from simulator.models.node import Node
-from simulator.models.pod import Pod
+from simulator.models.pod import Pod, PodStatus
 
 class EtcdMock:
     def __init__(self):
@@ -10,13 +10,28 @@ class EtcdMock:
         self.node_pods: Dict[str, Set[str]] = {}
         self.pod_node: Dict[str, str] = {}
 
+        # pod status indices
+        self.pending_pods: Set[str] = set()
+        self.running_pods: Set[str] = set()
+        self.completed_pods: Set[str] = set()
+        self.failed_pods: Set[str] = set()
+
     # --- basic CRUD ---
     def add_node(self, node: Node) -> None:
         self.nodes[node.name] = node
         self.node_pods.setdefault(node.name, set())
 
+    def add_nodes(self, nodes: List[Node]) -> None:
+        for node in nodes:
+            self.add_node(node)
+
     def add_pod(self, pod: Pod) -> None:
         self.pods[pod.name] = pod
+        self.pending_pods.add(pod.name)
+
+    def add_pods(self, pods: List[Pod]) -> None:
+        for pod in pods:
+            self.add_pod(pod)
 
     # --- O(1) queries ---
     def get_node(self, node_name: str) -> Node:
@@ -80,9 +95,37 @@ class EtcdMock:
             node.gpu_pods[gid][pod.name] = milli
 
         return chosen
+    
+    def check_bindable(self, pod_name: str, node_name: str) -> bool:
+        pod = self.pods[pod_name]
+        node = self.nodes[node_name]
+        if node.cpu_milli_free < pod.cpu_milli or node.memory_mib_free < pod.memory_mib:
+            return False
+
+        if pod.num_gpu == 0:
+            return True
+
+        if node.gpu_count < pod.num_gpu:
+            return False
+
+        need = pod.num_gpu
+        per = pod.gpu_milli
+
+        if node.gpu_share_enabled:
+            eligible = [gid for gid in range(node.gpu_count)
+                        if node.gpu_free_milli[gid] >= per]
+            if len(eligible) < need:
+                return False
+        else:
+            eligible = [gid for gid in range(node.gpu_count)
+                        if len(node.gpu_pods[gid]) == 0 and node.gpu_free_milli[gid] >= per]
+            if len(eligible) < need:
+                return False
+
+        return True
 
     # --- bind / unbind ---
-    def bind(self, pod_name: str, node_name: str) -> None:
+    def bind(self, pod_name: str, node_name: str, current_time: Optional[int] = None) -> None:
         pod = self.pods[pod_name]
         node = self.nodes[node_name]
 
@@ -103,11 +146,18 @@ class EtcdMock:
         # commit indices O(1)
         pod.bound_node = node_name
         pod.gpu_alloc = gpu_alloc
+        pod.status = PodStatus.Running
+        pod.scheduled_time = current_time
 
         self.node_pods[node_name].add(pod_name)
         self.pod_node[pod_name] = node_name
 
-    def unbind(self, pod_name: str) -> None:
+        # update pod status indices
+        self.pending_pods.discard(pod_name)
+        self.running_pods.add(pod_name)
+
+
+    def unbind(self, pod_name: str, current_time: Optional[int] = None) -> None:
         pod = self.pods[pod_name]
         node_name = pod.bound_node
         if node_name is None:
@@ -131,3 +181,15 @@ class EtcdMock:
 
         pod.bound_node = None
         pod.gpu_alloc.clear()
+        pod.status = PodStatus.Completed
+        pod.completion_time = current_time
+
+        # update pod status indices
+        self.running_pods.discard(pod_name)
+        self.completed_pods.add(pod_name)
+
+    def get_total_cpu_milli(self) -> int:
+        return sum(node.cpu_milli_total for node in self.nodes.values())
+    
+    def get_total_gpu_milli(self) -> int:
+        return 1000 * sum(node.gpu_count for node in self.nodes.values())
